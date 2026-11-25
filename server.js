@@ -59,10 +59,27 @@ const STATIC = {
   '/favicon.svg': ['favicon.svg', 'image/svg+xml'],
 };
 const staticCache = new Map();
+// Файлы интерфейса ищем в public/, а если их туда не положили (например, при загрузке
+// на GitHub папка «расплющилась») — рядом с server.js.
+function findStatic(name) {
+  for (const dir of [PUBLIC_DIR, __dirname]) {
+    const file = path.join(dir, name);
+    if (fs.existsSync(file)) return file;
+  }
+  return null;
+}
 function loadStatic(name) {
-  if (process.env.NODE_ENV !== 'production') return fs.readFileSync(path.join(PUBLIC_DIR, name));
-  if (!staticCache.has(name)) staticCache.set(name, fs.readFileSync(path.join(PUBLIC_DIR, name)));
-  return staticCache.get(name);
+  if (process.env.NODE_ENV === 'production' && staticCache.has(name)) return staticCache.get(name);
+  const file = findStatic(name);
+  if (!file) throw new Error('missing ' + name);
+  const body = fs.readFileSync(file);
+  if (process.env.NODE_ENV === 'production') staticCache.set(name, body);
+  return body;
+}
+const missingStatic = [...new Set(Object.values(STATIC).map((e) => e[0]))].filter((n) => !findStatic(n));
+if (missingStatic.length) {
+  console.error(`\n  ❌ Не найдены файлы интерфейса: ${missingStatic.join(', ')}`);
+  console.error('     Положи их в папку public/ рядом с server.js (или прямо рядом с server.js).\n');
 }
 
 let useHttps = false;
@@ -283,7 +300,7 @@ function handler(req, res) {
       res.writeHead(200, { 'Content-Type': entry[1], 'Content-Length': body.length });
       return res.end(req.method === 'HEAD' ? undefined : body);
     } catch {
-      return sendJson(res, 500, { error: 'internal' });
+      return sendJson(res, 500, { error: `файл ${entry[0]} не найден на сервере — загрузи папку public` });
     }
   }
   sendJson(res, 404, { error: 'not found' });
